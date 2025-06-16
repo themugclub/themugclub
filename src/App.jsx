@@ -514,7 +514,7 @@ const Header = ({ user, isAdmin, setView, navigateHome, auth, navigateToAdmin, o
                 <nav className="flex justify-between items-center">
                     {/* Logo */}
                     <div onClick={() => { closeAllMenus(); navigateHome(); }} className="flex items-center space-x-3 cursor-pointer">
-                        <MugIcon />
+                        <link rel="icon" type="image/svg+xml" href="https://jnpzunovbadkxqlwzhcn.supabase.co/storage/v1/object/public/themugclub//logo.png" />
                         <h1 className="text-2xl md:text-3xl font-bold tracking-tighter text-amber-400">TheMugClub</h1>
                     </div>
 
@@ -643,7 +643,7 @@ const VideoBanner = () => {
 
     return (
         // The main container sets the height and creates a stacking context
-        <section className="relative w-full h-64 md:h-80 overflow-hidden text-white shadow-lg">
+        <section className="relative w-full h-64 md:h-80 overflow-hidden text-amber-400 shadow-lg">
             {/* The HTML5 video element */}
             <video
                 className="absolute top-1/2 left-1/2 w-full h-full object-cover transform -translate-y-1/2 -translate-x-1/2"
@@ -655,7 +655,7 @@ const VideoBanner = () => {
                 key={videoUrl} // Helps React re-render if the URL changes
             />
             {/* Dark gradient overlay for text readability */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 to-transparent" />
 
             {/* Text content container */}
             <div className="relative h-full flex flex-col items-center justify-center text-center p-4">
