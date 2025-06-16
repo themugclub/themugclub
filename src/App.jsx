@@ -82,6 +82,14 @@ export default function App() {
     const [loading, setLoading] = useState(true);
     const [authReady, setAuthReady] = useState(false);
     const [showLogoutModal, setShowLogoutModal] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategories, setSelectedCategories] = useState([]); // Changed from string to array
+    const [sortField, setSortField] = useState('createdAt');        // New state for sort field
+    const [sortDirection, setSortDirection] = useState('desc');
+    const [isFilterBarVisible, setIsFilterBarVisible] = useState(false);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [isSortOpen, setIsSortOpen] = useState(false);
+
 
     // --- Firebase Initialisation (memoised) ---
     const clients = useMemo(() => {
@@ -149,16 +157,40 @@ export default function App() {
     useEffect(() => {
         if (!db) { setLoading(false); return; }
         setLoading(true);
-        const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+
+        let postsQuery = query(collection(db, 'posts'));
+
+        // UPDATED: Apply multi-category filter if any categories are selected
+        if (selectedCategories.length > 0) {
+            // Firestore 'in' query can handle up to 30 items in the array
+            postsQuery = query(postsQuery, where('category', 'in', selectedCategories));
+        }
+
+        // UPDATED: Apply sorting using the new separate state variables
+        postsQuery = query(postsQuery, orderBy(sortField, sortDirection));
+
+        const unsubscribe = onSnapshot(postsQuery, (snapshot) => {
             setPosts(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
             setLoading(false);
         }, (err) => {
             console.error('Error fetching posts:', err);
             setLoading(false);
         });
+
         return () => unsubscribe();
-    }, [db]);
+        // Re-run this effect whenever the database, categories, or sort options change
+    }, [db, selectedCategories, sortField, sortDirection]);
+
+    // --- NEW: Client-side search filtering ---
+    const filteredPosts = useMemo(() => {
+        const lowercasedTerm = searchTerm.toLowerCase();
+        if (!lowercasedTerm) return posts; // Return all posts if search is empty
+
+        return posts.filter(post =>
+            post.name.toLowerCase().includes(lowercasedTerm) ||
+            post.brand.toLowerCase().includes(lowercasedTerm)
+        );
+    }, [posts, searchTerm]); // Re-filter only when posts or search term changes
 
     // --- Navigation helpers ---
     const navigateToPost = (post) => {
@@ -190,26 +222,68 @@ export default function App() {
 
         switch (view) {
             case 'login':
-                return <LoginModule auth={auth} db={db} ADMIN_UID={ADMIN_UID} setView={setView} />;
+                return <div className="container mx-auto p-4 md:p-8"><LoginModule auth={auth} db={db} ADMIN_UID={ADMIN_UID} setView={setView} /></div>;
             case 'admin':
-                return isAdmin ? <AdminConsole db={db} supabase={supabase} user={user} setView={navigateHome} editingPost={editingPost} /> : <AccessDenied setView={setView} />;
+                return <div className="container mx-auto p-4 md:p-8">{isAdmin ? <AdminConsole db={db} supabase={supabase} user={user} setView={navigateHome} editingPost={editingPost} /> : <AccessDenied setView={setView} />}</div>;
             case 'post':
-                return selectedPost ? <PostDetail post={selectedPost} db={db} supabase={supabase} user={user} navigateHome={navigateHome} isAdmin={isAdmin} navigateToAdmin={navigateToAdmin}/> : <NotFound />;
+                return <div className="container mx-auto p-4 md:p-8">{selectedPost ? <PostDetail post={selectedPost} db={db} supabase={supabase} user={user} navigateHome={navigateHome} isAdmin={isAdmin} navigateToAdmin={navigateToAdmin} setView={setView}/> : <NotFound />}</div>;
             case 'verify-email':
-                return <VerifyEmail user={user} auth={auth} setView={setView} />
+                return <div className="container mx-auto p-4 md:p-8"><VerifyEmail user={user} auth={auth} setView={setView} /></div>;
             case 'change-password':
-                return user ? <ChangePasswordModule auth={auth} setView={setView} /> : <LoginModule auth={auth} db={db} ADMIN_UID={ADMIN_UID} setView={setView} />;
+                return <div className="container mx-auto p-4 md:p-8">{user ? <ChangePasswordModule auth={auth} setView={setView} /> : <LoginModule auth={auth} db={db} ADMIN_UID={ADMIN_UID} setView={setView} />}</div>;
             case 'home':
             default:
-                return <HomePage posts={posts} loading={loading} navigateToPost={navigateToPost} />;
+                // Define categories for the filter dropdown
+                const allCategories = ['Beer', 'Whisky', 'Rum', 'Vodka', 'Gin', 'Wine', 'Other'];
+                return (
+                    <>
+                        <div className="container mx-auto p-4 md:p-8">
+                            <FilterSortBar
+                                isFilterBarVisible={isFilterBarVisible}
+                                isFilterOpen={isFilterOpen}
+                                setIsFilterOpen={setIsFilterOpen}
+                                isSortOpen={isSortOpen}
+                                setIsSortOpen={setIsSortOpen}
+                                searchTerm={searchTerm}
+                                setSearchTerm={setSearchTerm}
+                                selectedCategories={selectedCategories}
+                                setSelectedCategories={setSelectedCategories}
+                                sortField={sortField}
+                                setSortField={setSortField}
+                                sortDirection={sortDirection}
+                                setSortDirection={setSortDirection}
+                                allCategories={allCategories}
+                            />
+                            <HomePage
+                                posts={filteredPosts}
+                                loading={loading}
+                                navigateToPost={navigateToPost}
+                            />
+                        </div>
+                    </>
+                );
         }
     };
 
     return (
         <div className="bg-gray-900 text-white min-h-screen font-sans">
-            <Header user={user} isAdmin={isAdmin} setView={setView} navigateHome={navigateHome} auth={auth} navigateToAdmin={navigateToAdmin} onLogoutClick={() => setShowLogoutModal(true)} />
-            <main className="container mx-auto p-4 md:p-8">{renderView()}</main>
+            {/* UPDATED: Header call is now simpler, no longer has onFilterToggle */}
+            <Header
+                user={user}
+                isAdmin={isAdmin}
+                setView={setView}
+                navigateHome={navigateHome}
+                auth={auth}
+                navigateToAdmin={navigateToAdmin}
+                onLogoutClick={() => setShowLogoutModal(true)}
+            />
+            {view === 'home' && <VideoBanner />}
+
+            <main>{renderView()}</main>
+
             <Footer />
+
+            {/* The Logout Modal remains the same */}
             <Modal
                 isOpen={showLogoutModal}
                 onClose={() => setShowLogoutModal(false)}
@@ -218,9 +292,18 @@ export default function App() {
             >
                 <p>Are you sure you want to log out of TheMugClub?</p>
             </Modal>
+
+            {/* NEW: Render the floating toggle button only on the home view */}
+            {view === 'home' && !isFilterOpen && !isSortOpen && (
+                <FilterToggleButton
+                    isVisible={isFilterBarVisible}
+                    onClick={() => setIsFilterBarVisible(prev => !prev)}
+                />
+            )}
         </div>
     );
 }
+
 
 
 // --- COMPONENTS ---
@@ -386,34 +469,35 @@ const HamburgerIcon = () => (
 );
 
 
-// Replace your existing Header component with this final version
+// --- CORRECTED and FINAL version of the Header ---
 const Header = ({ user, isAdmin, setView, navigateHome, auth, navigateToAdmin, onLogoutClick }) => {
+    // State for desktop user dropdown and mobile menu are separate and local
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const dropdownRef = React.useRef(null);
 
-    const goToChangePassword = () => {
+    // --- Handlers ---
+    const closeAllMenus = () => {
         setDropdownOpen(false);
         setMobileMenuOpen(false);
-        setView('change-password');
-    }
+    };
+
+    const goTo = (view) => {
+        closeAllMenus();
+        setView(view);
+    };
+
+    const handleLogout = () => {
+        closeAllMenus();
+        onLogoutClick();
+    };
 
     const handleAdminNav = () => {
-        setMobileMenuOpen(false);
+        closeAllMenus();
         navigateToAdmin();
-    }
+    };
 
-    const handleLogoutClick = () => {
-        setDropdownOpen(false);
-        setMobileMenuOpen(false);
-        onLogoutClick();
-    }
-
-    const handleLoginClick = () => {
-        setMobileMenuOpen(false);
-        setView('login');
-    }
-
+    // Effect to close desktop dropdown if clicked outside
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -421,82 +505,87 @@ const Header = ({ user, isAdmin, setView, navigateHome, auth, navigateToAdmin, o
             }
         };
         document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
+        return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [dropdownRef]);
 
-    // --- Reusable JSX for navigation items ---
-    const navItems = (
-        <>
-            {isAdmin && (
-                <button onClick={handleAdminNav} className="w-full text-left md:w-auto bg-amber-500 text-gray-900 px-4 py-2 rounded-lg font-semibold hover:bg-amber-400 transition-colors">
-                    Admin Console
-                </button>
-            )}
-            {user ? (
-                <div className="relative" ref={dropdownRef}>
-                    {/* This is the desktop dropdown button */}
-                    <button onClick={() => setDropdownOpen(!dropdownOpen)} className="hidden md:flex items-center space-x-2 bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-600 transition-colors">
-                        <span>Hi, {user.displayName || user.email.split('@')[0]}</span>
-                        <svg className={`w-4 h-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </button>
-                    {/* Desktop Dropdown Menu */}
-                    {dropdownOpen && (
-                        <div className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-lg shadow-lg py-1 z-50 border border-gray-700">
-                            <button onClick={goToChangePassword} className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Change Password</button>
-                            <button onClick={handleLogoutClick} className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300">Logout</button>
-                        </div>
-                    )}
-                    {/* Mobile Menu Links (No dropdown needed) */}
-                    <div className="flex flex-col space-y-1 md:hidden">
-                        <p className="px-4 pt-2 pb-3 text-white font-semibold border-b border-gray-700">Hi, {user.displayName}</p>
-                        {/* UPDATED: Buttons are now styled like clean links */}
-                        <button onClick={goToChangePassword} className="w-full text-left px-4 py-3 text-gray-300 rounded-md hover:bg-gray-700 transition-colors">Change Password</button>
-                        <button onClick={handleLogoutClick} className="w-full text-left px-4 py-3 text-red-400 rounded-md hover:bg-red-500/20 transition-colors">Logout</button>
-                    </div>
-                </div>
-            ) : (
-                <button onClick={handleLoginClick} className="w-full text-left md:w-auto bg-amber-500 text-gray-900 px-4 py-2 rounded-lg font-semibold hover:bg-amber-400 transition-colors">
-                    Member Login
-                </button>
-            )}
-        </>
-    );
-
     return (
-        <header className="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50 border-b border-gray-700">
-            <nav className="container mx-auto px-4 md:px-8 py-4 flex justify-between items-center">
-                {/* Logo */}
-                <div onClick={navigateHome} className="flex items-center space-x-3 cursor-pointer">
-                    <img src="https://jnpzunovbadkxqlwzhcn.supabase.co/storage/v1/object/public/themugclub//logo.png" className="h-8 w-8 text-amber-400" alt="logo"></img>
-                    <h1 className="text-2xl md:text-3xl font-bold tracking-tighter text-amber-400">TheMugClub</h1>
-                </div>
-
-                {/* Desktop Navigation */}
-                <div className="hidden md:flex items-center space-x-4">
-                    {navItems}
-                </div>
-
-                {/* Mobile Hamburger Button */}
-                <div className="md:hidden">
-                    <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-                        <HamburgerIcon />
-                    </button>
-                </div>
-            </nav>
-
-            {/* Mobile Navigation Menu (collapsible) */}
-            {mobileMenuOpen && (
-                <div className="md:hidden bg-gray-800/80 backdrop-blur-lg">
-                    <div className="container mx-auto px-4 pb-4 pt-2 flex flex-col items-start space-y-2">
-                        {navItems}
+        <header className="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50 border-b border-gray-700 h-16 md:h-20 flex items-center">
+            <div className="container mx-auto px-4 md:px-8">
+                <nav className="flex justify-between items-center">
+                    {/* Logo */}
+                    <div onClick={() => { closeAllMenus(); navigateHome(); }} className="flex items-center space-x-3 cursor-pointer">
+                        <MugIcon />
+                        <h1 className="text-2xl md:text-3xl font-bold tracking-tighter text-amber-400">TheMugClub</h1>
                     </div>
-                </div>
-            )}
+
+                    {/* --- Desktop Navigation --- */}
+                    <div className="hidden md:flex items-center space-x-4">
+                        {isAdmin && <button onClick={handleAdminNav} className="bg-amber-500 text-gray-900 px-4 py-2 rounded-lg font-semibold hover:bg-amber-400">Admin Console</button>}
+                        {user ? (
+                            <div className="relative" ref={dropdownRef}>
+                                <button onClick={() => setDropdownOpen(!dropdownOpen)} className="flex items-center space-x-2 bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-600">
+                                    <span>Hi, {user.displayName}</span>
+                                    <svg className={`w-4 h-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </button>
+                                {dropdownOpen && (
+                                    <div className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-lg shadow-lg py-1 z-50 border border-gray-700">
+                                        <button onClick={() => goTo('change-password')} className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Change Password</button>
+                                        <button onClick={handleLogout} className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300">Logout</button>
+                                    </div>
+                                )}
+                            </div>
+                        ) : <button onClick={() => goTo('login')} className="bg-amber-500 text-gray-900 px-4 py-2 rounded-lg font-semibold hover:bg-amber-400">Member Login</button>}
+                    </div>
+
+                    {/* --- Mobile Hamburger Button --- */}
+                    <div className="md:hidden">
+                        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Open Menu">
+                            <HamburgerIcon />
+                        </button>
+                    </div>
+                </nav>
+
+                {/* --- Mobile Menu Panel --- */}
+                {mobileMenuOpen && (
+                    <div className="absolute top-full left-0 right-0 h-screen-safe bg-gray-900/95 backdrop-blur-md z-50 md:hidden">
+                        <div className="container mx-auto px-4 pb-4 pt-2 flex flex-col items-start space-y-2">
+                            {isAdmin && <button onClick={handleAdminNav} className="w-full text-left text-lg p-2 rounded-lg text-amber-500 font-semibold">Admin Console</button>}
+                            {user ? (
+                                <div className="w-full space-y-2">
+                                    <button onClick={() => goTo('change-password')} className="w-full text-left text-lg p-2 rounded-lg">Change Password</button>
+                                    <button onClick={handleLogout} className="w-full text-left text-lg p-2 rounded-lg text-red-300">Logout</button>
+                                </div>
+                            ) : <button onClick={() => goTo('login')} className="w-full text-left text-lg p-2 rounded-lg bg-amber-500 text-gray-900 font-semibold">Member Login</button>}
+                        </div>
+                    </div>
+                )}
+            </div>
         </header>
     );
 };
+
+// --- NEW ICONS: Add these near your other icon components ---
+const FilterIcon = () => (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L16 11.414V17l-4 4v-8.586L3.293 6.707A1 1 0 013 6V4z"></path></svg>
+);
+
+const CloseIcon = () => (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+);
+
+
+// --- NEW COMPONENT: The Floating Action Button ---
+const FilterToggleButton = ({ onClick, isVisible }) => (
+    // This button is only visible on mobile (md:hidden)
+    <button
+        onClick={onClick}
+        className="md:hidden fixed bottom-6 right-6 z-40 bg-amber-500 text-gray-900 p-4 rounded-full shadow-lg transform transition-transform hover:scale-110"
+        aria-label={isVisible ? 'Hide Filters' : 'Show Filters'}
+    >
+        {/* Conditionally render the icon based on visibility */}
+        {isVisible ? <CloseIcon /> : <FilterIcon />}
+    </button>
+);
 
 const HomePage = ({ posts, loading, navigateToPost }) => {
     if (loading) return <LoadingSpinner />;
@@ -506,7 +595,7 @@ const HomePage = ({ posts, loading, navigateToPost }) => {
         </div>
     );
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 md:mt-0 mt-4">
             {posts.map(post => <PostCard key={post.id} post={post} onClick={() => navigateToPost(post)} />)}
         </div>
     );
@@ -524,6 +613,10 @@ const PostCard = ({ post, onClick }) => (
             <h3 className="text-xs uppercase font-bold text-amber-400 tracking-widest">{post.brand}</h3>
             <h2 className="text-2xl font-bold mt-1 mb-2 text-white">{post.name}</h2>
 
+            <div
+                className={`text-center py-2 rounded-lg font-bold text-lg mt-3 ${post.decision === 'Buy' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>Verdict
+                - {post.decision}</div>
+
             <div className="flex justify-between items-center mt-4 border-t border-gray-700 pt-4">
                 <div>
                     <p className="text-sm text-gray-400">AVR Rating</p>
@@ -536,12 +629,48 @@ const PostCard = ({ post, onClick }) => (
                     </div>
                 }
             </div>
-            <div
-                className={`text-center py-2 rounded-lg font-bold text-lg mt-3 ${post.decision === 'Buy' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>Verdict
-                - {post.decision}</div>
         </div>
     </div>
 );
+
+const VideoBanner = () => {
+    // --- Easy Customization Area ---
+    // Replace this URL with the direct link to your looping video (.mp4, .webm, etc.)
+    const videoUrl = "https://jnpzunovbadkxqlwzhcn.supabase.co/storage/v1/object/public/videos//29512-376565590_tiny.mp4";
+    const headline = "Welcome to The Mug Club";
+    const subheadline = "What will you be drinking today?";
+    // ------------------------------------
+
+    return (
+        // The main container sets the height and creates a stacking context
+        <section className="relative w-full h-64 md:h-80 overflow-hidden text-white shadow-lg">
+            {/* The HTML5 video element */}
+            <video
+                className="absolute top-1/2 left-1/2 w-full h-full object-cover transform -translate-y-1/2 -translate-x-1/2"
+                src={videoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline // Crucial for autoplay on mobile browsers
+                key={videoUrl} // Helps React re-render if the URL changes
+            />
+            {/* Dark gradient overlay for text readability */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
+
+            {/* Text content container */}
+            <div className="relative h-full flex flex-col items-center justify-center text-center p-4">
+                <h2 className="text-4xl md:text-6xl font-extrabold tracking-tighter text-shadow-md">
+                    {headline}
+                </h2>
+                <p className="mt-2 text-lg md:text-xl text-gray-200 text-shadow">
+                    {subheadline}
+                </p>
+            </div>
+        </section>
+    );
+};
+
+
 
 
 // Replace the existing PostDetail component
@@ -690,6 +819,158 @@ const BreakdownItem = ({ label, value }) => (
         <p className="font-light text-white text-lg">{value}</p>
     </div>
 );
+
+
+// --- CORRECTED version of the responsive FilterSortBar ---
+const FilterSortBar = ({
+                           isFilterOpen, setIsFilterOpen,
+                           isSortOpen, setIsSortOpen,
+                           searchTerm, setSearchTerm,
+                           selectedCategories, setSelectedCategories,
+                           sortField, setSortField,
+                           sortDirection, setSortDirection,
+                           allCategories, isFilterBarVisible,
+                       }) => {
+    // State to control mobile overlay visibility
+
+    const handleCategoryChange = (category) => {
+        setSelectedCategories(prev =>
+            prev.includes(category)
+                ? prev.filter(c => c !== category) // Uncheck: remove from array
+                : [...prev, category]              // Check: add to array
+        );
+    };
+
+    const sortOptions = [
+        { value: 'createdAt', label: 'Date Published' },
+        { value: 'avrRating', label: 'AVR Rating' },
+        { value: 'memberRatingAvg', label: 'Member Rating' }
+    ];
+
+    const currentSortLabel = sortOptions.find(opt => opt.value === sortField)?.label;
+
+    // Handlers to also close the mobile panels after selection
+    const handleSortFieldSelect = (field) => {
+        setSortField(field);
+        setIsSortOpen(false);
+    };
+
+    const handleSortDirectionToggle = () => {
+        setSortDirection(prev => prev === 'desc' ? 'asc' : 'desc');
+    };
+
+    return (
+        // FIX: Added opening React Fragment to wrap all sibling elements
+        <>
+            <div className={`sticky top-16 md:top-20 z-30 bg-gray-900/80 backdrop-blur-sm -mx-4 px-4 
+                             ${isFilterBarVisible ? 'block' : 'hidden'} md:block`}>
+                <div className="container mx-auto">
+                    <div className="bg-gray-800/50 p-4 md:-mt-4 mt-2 rounded-lg mb-4 space-y-4">
+
+                        {/* --- Top row with search and action buttons --- */}
+                        <div className="flex flex-wrap gap-4 items-center">
+                            <div className="flex-grow min-w-[200px]">
+                                <input
+                                    type="text"
+                                    placeholder="Search by name or brand..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="w-full p-3 bg-gray-900 rounded-md border border-gray-700 focus:border-amber-500 focus:ring-0"
+                                />
+                            </div>
+
+                            {/* MOBILE trigger buttons */}
+                            <div className="flex md:hidden items-center gap-2">
+                                <button onClick={() => setIsFilterOpen(true)} className="p-3 bg-gray-900 rounded-md border border-gray-700">Filter</button>
+                                <button onClick={() => setIsSortOpen(true)} className="p-3 bg-gray-900 rounded-md border border-gray-700">Sort</button>
+                            </div>
+
+                            {/* DESKTOP custom dropdowns */}
+                            <div className="hidden md:flex items-stretch gap-0 bg-gray-900 rounded-md border border-gray-700">
+                                <CustomDropdown
+                                    trigger={
+                                        <div className="flex items-center justify-between p-3">
+                                            <span>Filter by Category</span>
+                                            <svg className="w-5 h-5 ml-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                        </div>
+                                    }
+                                >
+                                    <div className="p-4 space-y-3">
+                                        {allCategories.map(cat => (
+                                            <label key={cat} className="flex items-center space-x-3 cursor-pointer">
+                                                <input type="checkbox" checked={selectedCategories.includes(cat)} onChange={() => handleCategoryChange(cat)} className="h-5 w-5 rounded bg-gray-700 border-gray-600 text-amber-500 focus:ring-amber-500/50" />
+                                                <span className="text-gray-300">{cat}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </CustomDropdown>
+
+                                <div className="border-l border-gray-700">
+                                    <CustomDropdown
+                                        trigger={
+                                            <div className="flex items-center justify-between p-3">
+                                                <span className="mr-2">{currentSortLabel}</span>
+                                                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                            </div>
+                                        }
+                                    >
+                                        <div className="p-1">
+                                            {sortOptions.map(opt => (
+                                                <button key={opt.value} onClick={() => setSortField(opt.value)} className="w-full text-left px-3 py-2 text-gray-300 rounded-md hover:bg-gray-700">{opt.label}</button>
+                                            ))}
+                                        </div>
+                                    </CustomDropdown>
+                                </div>
+
+                                <button onClick={handleSortDirectionToggle} className="p-3 border-l border-gray-700 text-gray-400 hover:bg-gray-700" title={sortDirection === 'desc' ? 'Sort Ascending' : 'Sort Descending'}>
+                                    <svg className={`w-5 h-5 transition-transform duration-300 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4h13M3 8h9M3 12h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Pills for selected categories (visible on all screen sizes) */}
+                        <FilterPills selectedCategories={selectedCategories} onRemove={handleCategoryChange} />
+                    </div>
+                </div>
+            </div>
+
+            {/* --- Mobile Overlay Panels --- */}
+            {/* Filter Panel */}
+            <MobileOverlay isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)} title="Filter by Category">
+                <div className="p-4 space-y-4">
+                    {allCategories.map(cat => (
+                        <label key={cat} className="flex items-center space-x-4 text-lg cursor-pointer">
+                            <input type="checkbox" checked={selectedCategories.includes(cat)} onChange={() => handleCategoryChange(cat)} className="h-6 w-6 rounded bg-gray-700 border-gray-600 text-amber-500 focus:ring-amber-500/50" />
+                            <span className="text-gray-300">{cat}</span>
+                        </label>
+                    ))}
+                </div>
+            </MobileOverlay>
+
+            {/* Sort Panel */}
+            <MobileOverlay isOpen={isSortOpen} onClose={() => setIsSortOpen(false)} title="Sort By">
+                <div className="p-4 space-y-2">
+                    {sortOptions.map(opt => (
+                        <button key={opt.value} onClick={() => handleSortFieldSelect(opt.value)} className={`w-full text-left p-4 text-lg rounded-lg transition-colors ${sortField === opt.value ? 'bg-amber-500 text-gray-900 font-bold' : 'text-gray-300 hover:bg-gray-700'}`}>
+                            {opt.label}
+                        </button>
+                    ))}
+                    <div className="pt-4 mt-4 border-t border-gray-700">
+                        <button onClick={handleSortDirectionToggle} className="w-full flex items-center justify-between p-4 text-lg rounded-lg text-gray-300 hover:bg-gray-700">
+                            <span>Order</span>
+                            <div className="flex items-center gap-2 font-semibold">
+                                <span>{sortDirection === 'desc' ? 'Descending' : 'Ascending'}</span>
+                                <svg className={`w-6 h-6 transition-transform duration-300 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4h13M3 8h9M3 12h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"></path></svg>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </MobileOverlay>
+            {/* FIX: Added closing React Fragment */}
+        </>
+    );
+};
+
 
 
 // Replace your existing RatingModule
@@ -876,6 +1157,95 @@ const ChangePasswordModule = ({ auth, setView }) => { // UPDATED: Accept setView
                     &larr; Back to Home
                 </button>
             </div>
+        </div>
+    );
+};
+
+const FilterPills = ({ selectedCategories, onRemove }) => {
+    if (selectedCategories.length === 0) return null;
+
+    return (
+        <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-700">
+            {selectedCategories.map(category => (
+                <div key={category} className="flex items-center bg-amber-500 text-gray-900 text-sm font-semibold pl-3 pr-2 py-1 rounded-full">
+                    <span>{category}</span>
+                    <button onClick={() => onRemove(category)} className="ml-2 text-purple-200 hover:text-white">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// --- REPLACE your existing MobileOverlay component with this version ---
+const MobileOverlay = ({ isOpen, onClose, title, children }) => {
+    if (!isOpen) return null;
+
+    return (
+        // UPDATED:
+        // - No longer `inset-0`. It now starts below the sticky header (`top-16 md:top-20`).
+        // - `z-40` is now sufficient as it no longer competes with the header.
+        <div className="fixed top-16 md:top-20 right-0 bottom-0 left-0 bg-gray-900 z-40 flex flex-col" role="dialog" aria-modal="true">
+
+            {/* 1. Overlay Header (Fixed Height) */}
+            <div className="flex items-center justify-between p-4 bg-gray-800 border-b border-gray-700 flex-shrink-0">
+                <h3 className="text-lg font-bold text-amber-400">{title}</h3>
+                <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Close">
+                    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            {/* 2. Scrollable Content Area */}
+            <div className="flex-grow overflow-y-auto">
+                {children}
+            </div>
+
+            {/* 3. Sticky Footer with a large CTA button */}
+            <div className="flex-shrink-0 p-4 bg-gray-800/80 backdrop-blur-sm border-t border-gray-700">
+                <button
+                    onClick={onClose}
+                    className="w-full py-3 bg-amber-500 text-gray-900 rounded-lg text-lg font-bold hover:bg-amber-400 transition-colors"
+                >
+                    Done
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const CustomDropdown = ({ trigger, children }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = React.useRef(null);
+
+    // Effect to close dropdown if clicked outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [dropdownRef]);
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <button onClick={() => setIsOpen(!isOpen)} className="w-full">
+                {trigger}
+            </button>
+            {isOpen && (
+                <div
+                    className="absolute top-full mt-2 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-20"
+                    onClick={() => setIsOpen(false)} // Close dropdown after a selection
+                >
+                    {children}
+                </div>
+            )}
         </div>
     );
 };
