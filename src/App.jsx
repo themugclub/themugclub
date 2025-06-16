@@ -469,7 +469,7 @@ const Header = ({ user, isAdmin, setView, navigateHome, auth, navigateToAdmin, o
             <nav className="container mx-auto px-4 md:px-8 py-4 flex justify-between items-center">
                 {/* Logo */}
                 <div onClick={navigateHome} className="flex items-center space-x-3 cursor-pointer">
-                    <img src="/src/assets/logo.png" className="h-8 w-8 text-amber-400"></img>
+                    <img src="https://jnpzunovbadkxqlwzhcn.supabase.co/storage/v1/object/public/themugclub//logo.png" className="h-8 w-8 text-amber-400" alt="logo"></img>
                     <h1 className="text-2xl md:text-3xl font-bold tracking-tighter text-amber-400">TheMugClub</h1>
                 </div>
 
