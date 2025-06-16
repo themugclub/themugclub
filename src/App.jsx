@@ -469,7 +469,7 @@ const Header = ({ user, isAdmin, setView, navigateHome, auth, navigateToAdmin, o
             <nav className="container mx-auto px-4 md:px-8 py-4 flex justify-between items-center">
                 {/* Logo */}
                 <div onClick={navigateHome} className="flex items-center space-x-3 cursor-pointer">
-                    <MugIcon />
+                    <img src="/src/assets/logo.png" className="h-8 w-8 text-amber-400"></img>
                     <h1 className="text-2xl md:text-3xl font-bold tracking-tighter text-amber-400">TheMugClub</h1>
                 </div>
 
@@ -672,9 +672,6 @@ const Breakdown = ({ details }) => (
     <div className="bg-gray-800 rounded-lg p-6">
         <h3 className="text-lg font-bold text-amber-400 mb-4 tracking-widest">THE BREAKDOWN</h3>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-            <BreakdownItem label="A's Rating" value={details.aRating} />
-            <BreakdownItem label="V's Rating" value={details.vRating} />
-            <BreakdownItem label="R's Rating" value={details.rRating} />
             <BreakdownItem label="Decision" value={details.decision} />
             <BreakdownItem label="ABV" value={`${details.abv}%`} />
             <BreakdownItem label="Price" value={`₹${details.price}`} />
