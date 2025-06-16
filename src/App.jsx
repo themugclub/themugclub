@@ -517,7 +517,6 @@ const Header = ({ user, isAdmin, setView, navigateHome, auth, navigateToAdmin, o
                         <img src="https://jnpzunovbadkxqlwzhcn.supabase.co/storage/v1/object/public/themugclub//logo.png" className="h-8 w-8 text-amber-400" alt="logo"></img>
                         <h1 className="text-2xl md:text-3xl font-bold tracking-tighter text-amber-400">TheMugClub</h1>
                     </div>
-
                     {/* --- Desktop Navigation --- */}
                     <div className="hidden md:flex items-center space-x-4">
                         {isAdmin && <button onClick={handleAdminNav} className="bg-amber-500 text-gray-900 px-4 py-2 rounded-lg font-semibold hover:bg-amber-400">Admin Console</button>}
