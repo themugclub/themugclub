@@ -33,14 +33,7 @@ import {
     getDocs
 } from 'firebase/firestore';
 // Supabase Import
-import { createClient } from '@supabase/supabase-js';
-
-// --- Supabase Client (Singleton Pattern) ---
-// This is created outside the component to ensure it's a single instance.
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
+import { supabase } from './supabaseclient.js';
 
 // --- Image Compression Utility ---
 const compressImage = (file, quality = 0.7) => {
@@ -116,7 +109,10 @@ export default function App() {
 
     // --- Authentication ---
     useEffect(() => {
-        if (!auth) { setAuthReady(true); return; }
+        if (!auth || !supabase) {
+            setAuthReady(true);
+            return;
+        }
 
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             if (currentUser) {
@@ -124,28 +120,33 @@ export default function App() {
                     // NEW: Force a token refresh to verify the user still exists on the backend.
                     await currentUser.getIdToken(true);
 
+                    const idToken = await currentUser.getIdToken();
+                    await supabase.auth.signInWithIdToken({
+                        provider: 'firebase',
+                        token: idToken,
+                    });
+
                     // If the above line doesn't throw an error, the user is valid. Proceed as normal.
                     setUser(currentUser);
                     const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
                     setIsAdmin(userDoc.exists() && userDoc.data().isAdmin);
 
                 } catch (error) {
-                    // This error means the user was deleted from the Firebase backend.
+                    console.error("Error during authentication sync:", error);
+                    await supabase.auth.signOut();
                     if (error.code === 'auth/user-not-found' || error.code === 'auth/internal-error') {
                         console.warn("Stale user session detected. Forcing logout.");
-                        // The user does not exist anymore, so sign them out on the client.
                         await signOut(auth);
                         setUser(null);
                         setIsAdmin(false);
                     } else {
-                        // Handle other potential errors if necessary
                         console.error("Auth state error:", error);
                     }
                 }
             } else {
-                // No user is logged in
+                await supabase.auth.signOut();
                 setUser(null);
-                setIsAdmin(false);
+                setIsAdmin(false);;
             }
             setAuthReady(true);
         });
@@ -209,10 +210,14 @@ export default function App() {
     }
 
     const handleConfirmLogout = async () => {
-        if (!auth) return;
+        if (!auth || !supabase) return;
+
+        // Sign out of both services
         await signOut(auth);
-        setShowLogoutModal(false); // Close the modal
-        navigateHome(); // Navigate home
+        await supabase.auth.signOut();
+
+        setShowLogoutModal(false);
+        navigateHome();
     };
 
     // --- Render dispatcher ---
@@ -600,37 +605,49 @@ const HomePage = ({ posts, loading, navigateToPost }) => {
     );
 };
 
-const PostCard = ({ post, onClick }) => (
-    <div onClick={onClick} className="bg-gray-800 rounded-xl overflow-hidden cursor-pointer group transform shadow-lg hover:shadow-amber-500/20">
-        <img
-            src={post.imageUrl || 'https://placehold.co/600x400/1f2937/a855f7?text=TheMugClub'}
-            alt={post.name}
-            className="w-full h-96 object-cover group-hover:opacity-90 transition-opacity"
-            onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/600x400/1f2937/a855f7?text=Image+Error'; }}
-        />
-        <div className="p-6">
-            <h3 className="text-xs uppercase font-bold text-amber-400 tracking-widest">{post.brand}</h3>
-            <h2 className="text-2xl font-bold mt-1 mb-2 text-white">{post.name}</h2>
+// --- UPDATED PostCard Component ---
+const PostCard = ({ post, onClick }) => {
+    // NEW: State to track if the image has loaded for the fade-in effect
+    const [isLoaded, setIsLoaded] = useState(false);
 
-            <div
-                className={`text-center py-2 rounded-lg font-bold text-lg mt-3 ${post.decision === 'Buy' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>Verdict
-                - {post.decision}</div>
+    return (
+        <div onClick={onClick} className="bg-gray-800 rounded-xl overflow-hidden cursor-pointer group transform shadow-lg hover:shadow-amber-500/20">
+            <div className="w-full h-96 bg-gray-700"> {/* Placeholder background */}
+                <img
+                    src={post.imageUrl || 'https://placehold.co/600x400/1f2937/a855f7?text=TheMugClub'}
+                    alt={post.name}
+                    // NEW: Native browser lazy loading
+                    loading="lazy"
+                    // NEW: Handlers and classes for the smooth fade-in effect
+                    onLoad={() => setIsLoaded(true)}
+                    className={`w-full h-full object-cover group-hover:opacity-90 transition-opacity duration-500 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+                    onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/600x400/1f2937/a855f7?text=Image+Error'; }}
+                />
+            </div>
+            <div className="p-6">
+                <h3 className="text-xs uppercase font-bold text-amber-400 tracking-widest">{post.brand}</h3>
+                <h2 className="text-2xl font-bold mt-1 mb-2 text-white">{post.name}</h2>
 
-            <div className="flex justify-between items-center mt-4 border-t border-gray-700 pt-4">
-                <div>
-                    <p className="text-sm text-gray-400">AVR Rating</p>
-                    <p className="text-2xl font-bold text-amber-400">{post.avrRating}/5</p>
+                <div className={`text-center py-2 rounded-lg font-bold text-lg mt-3 ${post.decision === 'Buy' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                    Verdict - {post.decision}
                 </div>
-                {post.memberRatingCount > 0 &&
-                    <div className="text-right">
-                        <p className="text-sm text-gray-400">Members ({post.memberRatingCount})</p>
-                        <p className="text-2xl font-bold text-amber-400">{post.memberRatingAvg}/5</p>
+
+                <div className="flex justify-between items-center mt-4 border-t border-gray-700 pt-4">
+                    <div>
+                        <p className="text-sm text-gray-400">AVR Rating</p>
+                        <p className="text-2xl font-bold text-amber-400">{post.avrRating}/5</p>
                     </div>
-                }
+                    {post.memberRatingCount > 0 &&
+                        <div className="text-right">
+                            <p className="text-sm text-gray-400">Members ({post.memberRatingCount})</p>
+                            <p className="text-2xl font-bold text-amber-400">{post.memberRatingAvg}/5</p>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 
 const VideoBanner = () => {
     // --- Easy Customization Area ---
@@ -650,8 +667,9 @@ const VideoBanner = () => {
                 autoPlay
                 loop
                 muted
-                playsInline // Crucial for autoplay on mobile browsers
-                key={videoUrl} // Helps React re-render if the URL changes
+                playsInline
+                preload="metadata"
+                key={videoUrl}
             />
             {/* Dark gradient overlay for text readability */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/95 to-transparent" />
@@ -677,6 +695,7 @@ const PostDetail = ({ post: initialPost, db, supabase, user, navigateHome, isAdm
     // We now use state for the post, which will be updated in real-time
     const [post, setPost] = useState(initialPost);
     const [comments, setComments] = useState([]);
+    const [isImageLoaded, setIsImageLoaded] = useState(false);
 
     // Real-time listener for the post document
     useEffect(() => {
@@ -755,7 +774,13 @@ const PostDetail = ({ post: initialPost, db, supabase, user, navigateHome, isAdm
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-8 md:gap-12 mt-8">
                     {/* Left Column */}
                     <div className="md:col-span-2">
-                        <img src={post.imageUrl} alt={post.name} className="w-full rounded-lg shadow-2xl object-cover mb-8"/>
+                        <img
+                            src={post.imageUrl}
+                            alt={post.name}
+                            loading="lazy"
+                            onLoad={() => setIsImageLoaded(true)}
+                            className={`w-full rounded-lg object-cover transition-opacity duration-500 ${isImageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                        />
                         <Scoreboard avrRating={post.avrRating} memberRating={post.memberRatingAvg} memberRatingCount={post.memberRatingCount} />
                     </div>
                     {/* Right Column */}
