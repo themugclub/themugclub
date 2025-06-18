@@ -32,8 +32,11 @@ import {
     where,
     getDocs
 } from 'firebase/firestore';
+import { createClient } from '@supabase/supabase-js';
 // Supabase Import
-import { supabase } from './supabaseclient.js';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // --- Image Compression Utility ---
 const compressImage = (file, quality = 0.7) => {
